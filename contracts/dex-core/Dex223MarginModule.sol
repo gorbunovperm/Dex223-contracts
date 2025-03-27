@@ -34,12 +34,9 @@ contract MarginModule {
     mapping (uint256 => Order)    public orders;
     mapping (uint256 => Position) public positions;
     mapping (uint256 => mapping (address => uint8)) assetIds;
-    mapping (address => bool) public isAssetLoanable;
-    mapping (address => bool) public isAssetPledgeable;
 
     uint256 orderIndex;
     uint256 positionIndex;
-    address admin;
 
     event NewOrder(address asset, uint256 orderID);
 
@@ -52,16 +49,11 @@ contract MarginModule {
         uint256 duration;
         address[] collateralAssets;
         uint256 minLoan; // Protection of liquidation process from overload.
-        address liquidationRewardAsset;
         uint256 liquidationRewardAmount;
 
-        address baseAsset;
+        address baseAsset; // and the liquidationRewardAsset
         uint256 deadline;
         uint256 balance;
-
-        uint8 state; // 0 - active
-        // 1 - disabled, alive
-        // 2 - disabled, empty
 
         uint16 currencyLimit;
         uint8 leverage;
@@ -95,13 +87,7 @@ contract MarginModule {
         address payer;
     }
 
-    modifier onlyAdmin() {
-        require(msg.sender == admin);
-        _;
-    }
-
     constructor(address _factory, address _router) {
-        admin = msg.sender;
         factory = IDex223Factory(_factory);
         router = ISwapRouter(_router);
     }
@@ -110,9 +96,8 @@ contract MarginModule {
         address listingContract,
         uint256 interestRate,
         uint256 duration,
-        address[] calldata collateral,
+        address[] memory collateral,
         uint256 minLoan,
-        address liquidationRewardAsset,
         uint256 liquidationRewardAmount,
         address asset,
         uint256 deadline,
@@ -120,8 +105,6 @@ contract MarginModule {
         uint8 leverage
     ) public {
 
-        require(isAssetLoanable[asset]);
-        require(isAssetPledgeable[liquidationRewardAsset]);
         require(leverage > 1);
 
         Order memory _newOrder = Order(msg.sender,
@@ -132,11 +115,9 @@ contract MarginModule {
             duration,
             collateral,
             minLoan,
-            liquidationRewardAsset,
             liquidationRewardAmount,
             asset,
             deadline,
-            0,
             0,
             currencyLimit,
             leverage);
@@ -165,7 +146,7 @@ contract MarginModule {
     }
 
     function isOrderOpen(uint256 id) public view returns(bool) {
-        return orders[id].state == 0 && orders[id].deadline < block.timestamp;
+        return orders[id].deadline < block.timestamp;
     }
 
     function orderWithdraw(uint256 orderId, uint256 amount) public {
@@ -297,7 +278,8 @@ contract MarginModule {
         _receiveAsset(collateralAsset, _collateralAmount);
 
         //TODO: receive ETH
-        _receiveAsset(order.liquidationRewardAsset, order.liquidationRewardAmount);
+	// liquidationRewardAsset is the same as baseAsset
+        _receiveAsset(order.baseAsset, order.liquidationRewardAmount);
 
         // Make sure position is not subject to liquidation right after it was created.
         // Revert otherwise.
@@ -565,7 +547,8 @@ contract MarginModule {
         }
 
         if (success) {
-            _sendAsset(order.liquidationRewardAsset, order.liquidationRewardAmount);
+            // liquidationRewardAsset is the same as baseAsset
+            _sendAsset(order.baseAsset, order.liquidationRewardAmount);
         }
 
         position.open = false; 
@@ -653,15 +636,4 @@ contract MarginModule {
         return positions[_positionId].assets.length + 1 <= orders[positions[_positionId].orderId].currencyLimit;
     }
 
-    /* MarginModule admin privileges */
-
-    function makePledgeable(address asset, bool pledgeable) public onlyAdmin {
-        require(asset != address(0));
-        isAssetPledgeable[asset] = pledgeable;
-    }
-
-    function makeLoanable(address asset, bool loanable) public onlyAdmin {
-        require(asset != address(0));
-        isAssetLoanable[asset] = loanable;
-    }
 }
