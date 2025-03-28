@@ -3,6 +3,10 @@ pragma solidity ^0.8.13;
 
 import "./interfaces/IUniswapV3Pool.sol";
 
+interface IUniswapV3Factory {
+    function getPool(address tokenA, address tokenB, uint24 fee) external view returns (address pool);
+}
+
 contract Oracle {
 
     function getSqrtPriceX96(address poolAddress) public view returns(uint160 sqrtPriceX96) {
@@ -15,7 +19,7 @@ contract Oracle {
     function getSpotPriceTick(address poolAddress) public view returns(int24 tick) {
         IUniswapV3Pool pool;
         pool = IUniswapV3PoolOracle(poolAddress);
-        (uint160 sqrtPriceX96,, tick,,,,, bool unlocked) = pool.slot0();
+        (uint160 sqrtPriceX96, tick,,,,, bool unlocked) = pool.slot0();
         return tick;
     }
 
@@ -36,5 +40,37 @@ contract Oracle {
         }
 
         return price;
+    }
+
+    IUniswapV3Factory public immutable factory;
+
+    uint24[] public feeTiers = [500, 3000, 10000];
+
+    constructor (address _factory) {
+        factory = IUniswapV3Factory(_factory);
+    }
+
+    function findPoolWithHighestLiquidity(
+        address tokenA,
+	address tokenB
+    ) external view returns (address poolAddress, uint128 liquidity, uint24 fee) {
+        require(tokenA != tokenB);
+	require(tokenA != address(0));
+
+	(address token0, address token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+
+	for (uint i = 0; i < feeTiers.length; i++) {
+	    address pool = factory.getPool(token0, token1, feeTiers[i]);
+	    if (pool != address(0)) {
+	        uint128 currentLiquidity = IUniswapV3Pool(pool).liquidity();
+		if (currentLiquidity > liquidity) {
+		    liquidity = currentLiquidity;
+		    poolAddress = pool;
+		    fee = feeTiers[i];
+		}
+	    }
+	}
+
+	require(poolAddress != address(0));
     }
 }
